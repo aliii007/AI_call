@@ -1,8 +1,8 @@
-const express = require('express');
+import express from 'express';
 const router = express.Router();
-const aiService = require('../services/aiService');
-const transcriptionService = require('../services/transcriptionService');
-const authenticate = require('../middleware/authenticate');
+import aiService from '../services/aiService.js';
+import transcriptionService from '../services/transcriptionService.js';
+import authenticate from '../middleware/authenticate.js';
 
 // Generate AI suggestion
 router.post('/suggestion', authenticate, async (req, res) => {
@@ -134,4 +134,4 @@ router.get('/transcription/status/:transcriptId', authenticate, async (req, res)
   }
 });
 
-module.exports = router;
+export default router;

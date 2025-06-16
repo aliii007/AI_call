@@ -1,5 +1,5 @@
-const { AssemblyAI } = require('assemblyai');
-const config = require('../config/config');
+import { AssemblyAI } from 'assemblyai';
+import config from '../config/config.js';
 
 class TranscriptionService {
   constructor() {
@@ -129,4 +129,5 @@ class TranscriptionService {
   }
 }
 
-module.exports = new TranscriptionService();
+const transcriptionService = new TranscriptionService();
+export default transcriptionService;

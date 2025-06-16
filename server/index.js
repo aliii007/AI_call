@@ -1,27 +1,34 @@
-const express = require('express');
-const http = require('http');
-const socketIo = require('socket.io');
-const cors = require('cors');
-const jwt = require('jsonwebtoken');
-const bcrypt = require('bcryptjs');
-const multer = require('multer');
-const path = require('path');
-const fs = require('fs');
+import express from 'express';
+import http from 'http';
+import { Server } from 'socket.io';
+import cors from 'cors';
+import jwt from 'jsonwebtoken';
+import bcrypt from 'bcryptjs';
+import multer from 'multer';
+import path from 'path';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
+import authRoutes from './routes/auth.js';
+
+// Get current file path (ES modules equivalent of __dirname)
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 // Import services
-const aiService = require('./services/aiService');
-const transcriptionService = require('./services/transcriptionService');
-const zoomService = require('./services/zoomService');
-const config = require('./config/config');
+import aiService from './services/aiService.js';
+import transcriptionService from './services/transcriptionService.js';
+import zoomService from './services/zoomService.js';
+import config from './config/config.js';
 
 // Import routes
-const aiRoutes = require('./routes/ai');
-const meetingRoutes = require('./routes/meetings');
-const authenticate = require('./middleware/authenticate');
+import aiRoutes from './routes/ai.js';
+import meetingRoutes from './routes/meetings.js';
+import authenticate from './middleware/authenticate.js';
 
 const app = express();
 const server = http.createServer(app);
-const io = socketIo(server, {
+const io = new Server(server, {
   cors: {
     origin: "http://localhost:5173",
     methods: ["GET", "POST"]
@@ -85,29 +92,7 @@ const upload = multer({
 // Routes
 app.use('/api/ai', aiRoutes);
 app.use('/api/meetings', meetingRoutes);
-
-// Authentication
-app.post('/api/auth/login', async (req, res) => {
-  const { email, password } = req.body;
-  
-  const user = users.find(u => u.email === email);
-  if (!user) {
-    return res.status(401).json({ error: 'User not found' });
-  }
-
-  // In production, use bcrypt.compare
-  const token = jwt.sign({ userId: user.id, email: user.email }, config.JWT_SECRET);
-  
-  res.json({
-    token,
-    user: {
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      role: user.role
-    }
-  });
-});
+app.use('/api/auth', authRoutes);
 
 // Calls
 app.get('/api/calls', authenticate, (req, res) => {
@@ -364,4 +349,4 @@ server.listen(PORT, () => {
   console.log(`📱 Google Meet: ${config.GOOGLE_CLIENT_ID ? '✅' : '❌'} Configured`);
 });
 
-module.exports = app;
+export default app;

@@ -1,5 +1,5 @@
-const { google } = require('googleapis');
-const config = require('../config/config');
+import { google } from 'googleapis';
+import config from '../config/config.js';
 
 class GoogleMeetService {
   constructor() {
@@ -154,4 +154,5 @@ class GoogleMeetService {
   }
 }
 
-module.exports = new GoogleMeetService();
+const meetService = new GoogleMeetService();
+export default meetService;

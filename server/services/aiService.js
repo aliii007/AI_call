@@ -1,5 +1,5 @@
-const OpenAI = require('openai');
-const config = require('../config/config');
+import OpenAI from 'openai';
+import config from '../config/config.js';
 
 class AIService {
   constructor() {
@@ -299,4 +299,5 @@ Guidelines:
   }
 }
 
-module.exports = new AIService();
+const aiService = new AIService();
+export default aiService;

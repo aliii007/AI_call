@@ -1,10 +1,14 @@
 import axios from 'axios';
 
-const API_BASE_URL = 'http://localhost:3001/api';
+// Use environment variable or fallback to default
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+
+// Ensure the URL ends with /api
+const formattedBaseUrl = API_BASE_URL.endsWith('/api') ? API_BASE_URL : `${API_BASE_URL}/api`;
 
 // Create axios instance with default config
 const apiClient = axios.create({
-  baseURL: API_BASE_URL,
+  baseURL: formattedBaseUrl,
   timeout: 30000,
   headers: {
     'Content-Type': 'application/json',
@@ -194,6 +198,15 @@ export class APIService {
   // Authentication
   static async login(email: string, password: string) {
     const response = await apiClient.post('/auth/login', {
+      email,
+      password
+    });
+    return response.data;
+  }
+  
+  static async register(name: string, email: string, password: string) {
+    const response = await apiClient.post('/auth/register', {
+      name,
       email,
       password
     });

@@ -4,6 +4,7 @@ import { User } from '../types';
 interface AuthContextType {
   user: User | null;
   login: (email: string, password: string) => Promise<void>;
+  register: (name: string, email: string, password: string) => Promise<void>;
   logout: () => void;
   loading: boolean;
 }
@@ -23,44 +24,103 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Simulate auth check
-    const mockUser: User = {
-      id: '1',
-      name: 'Sarah Johnson',
-      email: 'sarah@company.com',
-      avatar: 'https://images.pexels.com/photos/774909/pexels-photo-774909.jpeg?auto=compress&cs=tinysrgb&w=150&h=150&dpr=2',
-      role: 'user'
+    // Check if user is already logged in
+    const checkAuthStatus = async () => {
+      const token = localStorage.getItem('authToken');
+      if (!token) {
+        setLoading(false);
+        return;
+      }
+
+      try {
+        // Use axios instance from APIService
+        const response = await fetch('/api/auth/me', {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
+
+        if (response.ok) {
+          const userData = await response.json();
+          setUser(userData);
+        } else {
+          // If token is invalid, remove it
+          localStorage.removeItem('authToken');
+        }
+      } catch (error) {
+        console.error('Auth check error:', error);
+        localStorage.removeItem('authToken');
+      } finally {
+        setLoading(false);
+      }
     };
-    
-    setTimeout(() => {
-      setUser(mockUser);
-      setLoading(false);
-    }, 1000);
+
+    checkAuthStatus();
   }, []);
+
+  const register = async (name: string, email: string, password: string) => {
+    setLoading(true);
+    
+    try {
+      const response = await fetch('/api/auth/register', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ name, email, password }),
+      });
+      
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.error || 'Registration failed');
+      }
+      
+      // Save token and set user
+      localStorage.setItem('authToken', data.token);
+      setUser(data.user);
+      
+      return data;
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const login = async (email: string, password: string) => {
     setLoading(true);
-    // Simulate login API call
-    await new Promise(resolve => setTimeout(resolve, 1000));
     
-    const mockUser: User = {
-      id: '1',
-      name: 'Sarah Johnson',
-      email,
-      avatar: 'https://images.pexels.com/photos/774909/pexels-photo-774909.jpeg?auto=compress&cs=tinysrgb&w=150&h=150&dpr=2',
-      role: 'user'
-    };
-    
-    setUser(mockUser);
-    setLoading(false);
+    try {
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email, password }),
+      });
+      
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.error || 'Login failed');
+      }
+      
+      // Save token and set user
+      localStorage.setItem('authToken', data.token);
+      setUser(data.user);
+      
+      return data;
+    } finally {
+      setLoading(false);
+    }
   };
 
   const logout = () => {
+    localStorage.removeItem('authToken');
     setUser(null);
   };
 
   return (
-    <AuthContext.Provider value={{ user, login, logout, loading }}>
+    <AuthContext.Provider value={{ user, login, register, logout, loading }}>
       {children}
     </AuthContext.Provider>
   );

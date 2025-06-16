@@ -1,6 +1,16 @@
-require('dotenv').config();
+import dotenv from 'dotenv';
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
+import path from 'path';
 
-module.exports = {
+// Get current file path (ES modules equivalent of __dirname)
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+// Load environment variables from .env file
+dotenv.config({ path: path.resolve(__dirname, '../../.env') });
+
+export default {
   // Server Configuration
   PORT: process.env.PORT || 3001,
   JWT_SECRET: process.env.JWT_SECRET || 'your-secret-key',

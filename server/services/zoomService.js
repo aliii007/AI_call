@@ -1,6 +1,6 @@
-const axios = require('axios');
-const jwt = require('jsonwebtoken');
-const config = require('../config/config');
+import axios from 'axios';
+import jwt from 'jsonwebtoken';
+import config from '../config/config.js';
 
 class ZoomService {
   constructor() {
@@ -200,13 +200,15 @@ class ZoomService {
   }
 
   // Generate Zoom SDK signature for client-side SDK
-  generateSDKSignature(meetingNumber, role) {
+  async generateSDKSignature(meetingNumber, role) {
     const timestamp = new Date().getTime() - 30000;
     const msg = Buffer.from(config.ZOOM_SDK_KEY + meetingNumber + timestamp + role).toString('base64');
-    const hash = require('crypto').createHmac('sha256', config.ZOOM_SDK_SECRET).update(msg).digest('base64');
+    const crypto = await import('crypto');
+    const hash = crypto.createHmac('sha256', config.ZOOM_SDK_SECRET).update(msg).digest('base64');
     
     return Buffer.from(`${config.ZOOM_SDK_KEY}.${meetingNumber}.${timestamp}.${role}.${hash}`).toString('base64');
   }
 }
 
-module.exports = new ZoomService();
+const zoomService = new ZoomService();
+export default zoomService;

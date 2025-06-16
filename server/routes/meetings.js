@@ -1,8 +1,8 @@
-const express = require('express');
+import express from 'express';
 const router = express.Router();
-const zoomService = require('../services/zoomService');
-const meetService = require('../services/meetService');
-const authenticate = require('../middleware/authenticate');
+import zoomService from '../services/zoomService.js';
+import meetService from '../services/meetService.js';
+import authenticate from '../middleware/authenticate.js';
 
 // Create Zoom meeting
 router.post('/zoom/create', authenticate, async (req, res) => {
@@ -180,4 +180,4 @@ router.post('/zoom/webhook', (req, res) => {
   }
 });
 
-module.exports = router;
+export default router;
