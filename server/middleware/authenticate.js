@@ -1,19 +1,28 @@
-import jwt from 'jsonwebtoken';
-import config from '../config/config.js';
+import { verifySupabaseToken } from '../lib/supabase.js';
 
-const authenticate = (req, res, next) => {
-  const token = req.header('Authorization')?.replace('Bearer ', '');
-  
-  if (!token) {
-    return res.status(401).json({ error: 'No token provided' });
-  }
-
+const authenticate = async (req, res, next) => {
   try {
-    const decoded = jwt.verify(token, config.JWT_SECRET);
-    req.user = decoded;
+    const authHeader = req.header('Authorization');
+    
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'No token provided' });
+    }
+    
+    const token = authHeader.replace('Bearer ', '');
+    
+    // Verify token with Supabase
+    const user = await verifySupabaseToken(token);
+    
+    if (!user) {
+      return res.status(401).json({ error: 'Invalid token' });
+    }
+    
+    // Add user to request object
+    req.user = user;
     next();
   } catch (error) {
-    res.status(401).json({ error: 'Invalid token' });
+    console.error('Authentication error:', error);
+    res.status(401).json({ error: 'Authentication failed' });
   }
 };
 

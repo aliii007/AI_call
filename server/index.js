@@ -2,14 +2,11 @@ import express from 'express';
 import http from 'http';
 import { Server } from 'socket.io';
 import cors from 'cors';
-import jwt from 'jsonwebtoken';
-import bcrypt from 'bcryptjs';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
-import authRoutes from './routes/auth.js';
 
 // Get current file path (ES modules equivalent of __dirname)
 const __filename = fileURLToPath(import.meta.url);
@@ -20,10 +17,14 @@ import aiService from './services/aiService.js';
 import transcriptionService from './services/transcriptionService.js';
 import zoomService from './services/zoomService.js';
 import config from './config/config.js';
+import { supabase } from './lib/supabase.js';
 
 // Import routes
 import aiRoutes from './routes/ai.js';
 import meetingRoutes from './routes/meetings.js';
+import callRoutes from './routes/calls.js';
+import documentRoutes from './routes/documents.js';
+import analyticsRoutes from './routes/analytics.js';
 import authenticate from './middleware/authenticate.js';
 
 const app = express();
@@ -44,22 +45,6 @@ app.use(express.static('uploads'));
 if (!fs.existsSync('./uploads')) {
   fs.mkdirSync('./uploads');
 }
-
-// Mock database
-const users = [
-  {
-    id: '1',
-    name: 'Sarah Johnson',
-    email: 'sarah@company.com',
-    password: '$2a$10$123456789', // hashed password
-    role: 'user'
-  }
-];
-
-const calls = [];
-const documents = [];
-const transcripts = [];
-const aiSuggestions = [];
 
 // File upload configuration
 const storage = multer.diskStorage({
@@ -92,102 +77,9 @@ const upload = multer({
 // Routes
 app.use('/api/ai', aiRoutes);
 app.use('/api/meetings', meetingRoutes);
-app.use('/api/auth', authRoutes);
-
-// Calls
-app.get('/api/calls', authenticate, (req, res) => {
-  const userCalls = calls.filter(call => call.userId === req.user.userId);
-  res.json(userCalls);
-});
-
-app.post('/api/calls', authenticate, async (req, res) => {
-  try {
-    const newCall = {
-      id: Math.random().toString(36).substr(2, 9),
-      ...req.body,
-      userId: req.user.userId,
-      createdAt: new Date(),
-      status: 'active',
-      transcript: [],
-      suggestions: []
-    };
-    
-    calls.push(newCall);
-
-    // Start AI monitoring for this call
-    if (req.body.meetingId && req.body.platform === 'zoom') {
-      await zoomService.startAIMonitoring(req.body.meetingId, newCall.id, io);
-    }
-
-    res.status(201).json(newCall);
-  } catch (error) {
-    console.error('Call creation error:', error);
-    res.status(500).json({ error: 'Failed to create call' });
-  }
-});
-
-// Documents
-app.get('/api/documents', authenticate, (req, res) => {
-  const userDocs = documents.filter(doc => doc.userId === req.user.userId);
-  res.json(userDocs);
-});
-
-app.post('/api/documents/upload', authenticate, upload.single('file'), async (req, res) => {
-  try {
-    const newDocument = {
-      id: Math.random().toString(36).substr(2, 9),
-      name: req.file.originalname,
-      type: path.extname(req.file.originalname).toLowerCase().replace('.', ''),
-      url: `/uploads/${req.file.filename}`,
-      uploadDate: new Date(),
-      processed: false,
-      tags: req.body.tags ? req.body.tags.split(',') : [],
-      userId: req.user.userId
-    };
-
-    documents.push(newDocument);
-    
-    // Process document with AI for context extraction
-    try {
-      const fileContent = fs.readFileSync(req.file.path, 'utf8');
-      const context = await aiService.processDocumentForContext(fileContent, newDocument.type);
-      
-      newDocument.context = context;
-      newDocument.processed = true;
-      
-      io.emit('documentProcessed', newDocument);
-    } catch (aiError) {
-      console.error('AI document processing error:', aiError);
-      // Mark as processed even if AI processing fails
-      setTimeout(() => {
-        newDocument.processed = true;
-        io.emit('documentProcessed', newDocument);
-      }, 5000);
-    }
-
-    res.status(201).json(newDocument);
-  } catch (error) {
-    console.error('Document upload error:', error);
-    res.status(500).json({ error: 'Failed to upload document' });
-  }
-});
-
-// Analytics
-app.get('/api/analytics', authenticate, (req, res) => {
-  const userCalls = calls.filter(call => call.userId === req.user.userId);
-  const userSuggestions = aiSuggestions.filter(s => s.userId === req.user.userId);
-  
-  const analytics = {
-    totalCalls: userCalls.length,
-    averageDuration: userCalls.reduce((acc, call) => acc + (call.duration || 0), 0) / userCalls.length || 0,
-    successRate: userCalls.filter(call => call.status === 'successful').length / userCalls.length * 100 || 0,
-    suggestionEffectiveness: userSuggestions.filter(s => s.used).length / userSuggestions.length * 100 || 0,
-    totalSuggestions: userSuggestions.length,
-    suggestionsUsed: userSuggestions.filter(s => s.used).length
-  };
-
-  res.json(analytics);
-});
+app.use('/api/calls', callRoutes);
+app.use('/api/documents', documentRoutes);
+app.use('/api/analytics', analyticsRoutes);
 
 // WebSocket for real-time features
 io.on('connection', (socket) => {
@@ -202,12 +94,21 @@ io.on('connection', (socket) => {
     try {
       await transcriptionService.startRealTimeTranscription(
         callId,
-        (transcript) => {
-          // Store transcript
-          transcripts.push({
-            ...transcript,
-            userId
-          });
+        async (transcript) => {
+          // Store transcript in Supabase
+          const { error } = await supabase
+            .from('transcripts')
+            .insert({
+              call_id: callId,
+              speaker: transcript.speaker,
+              text: transcript.text,
+              confidence: transcript.confidence,
+              timestamp: transcript.timestamp
+            });
+
+          if (error) {
+            console.error('Error storing transcript:', error);
+          }
 
           // Emit to call participants
           io.to(callId).emit('newTranscript', transcript);
@@ -242,16 +143,26 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('useSuggestion', (data) => {
+  socket.on('useSuggestion', async (data) => {
     const { suggestionId, callId } = data;
     
-    // Mark suggestion as used
-    const suggestion = aiSuggestions.find(s => s.id === suggestionId);
-    if (suggestion) {
-      suggestion.used = true;
-      suggestion.usedAt = new Date();
-      
-      io.to(callId).emit('suggestionUsed', { suggestionId });
+    try {
+      // Mark suggestion as used in Supabase
+      const { error } = await supabase
+        .from('ai_suggestions')
+        .update({ 
+          used: true, 
+          used_at: new Date().toISOString() 
+        })
+        .eq('id', suggestionId);
+
+      if (error) {
+        console.error('Error updating suggestion:', error);
+      } else {
+        io.to(callId).emit('suggestionUsed', { suggestionId });
+      }
+    } catch (error) {
+      console.error('Error marking suggestion as used:', error);
     }
   });
 
@@ -268,47 +179,90 @@ io.on('connection', (socket) => {
 // Generate AI suggestion helper function
 async function generateAISuggestionIfNeeded(callId, userId, forceGenerate = false) {
   try {
-    const callTranscripts = transcripts.filter(t => t.callId === callId);
-    const userDocuments = documents.filter(d => d.userId === userId && d.processed);
-    
+    // Get recent transcripts from Supabase
+    const { data: transcripts, error: transcriptError } = await supabase
+      .from('transcripts')
+      .select('*')
+      .eq('call_id', callId)
+      .order('created_at', { ascending: false })
+      .limit(10);
+
+    if (transcriptError) {
+      console.error('Error fetching transcripts:', transcriptError);
+      return;
+    }
+
+    // Get user documents from Supabase
+    const { data: documents, error: documentsError } = await supabase
+      .from('documents')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('processed', true);
+
+    if (documentsError) {
+      console.error('Error fetching documents:', documentsError);
+      return;
+    }
+
     // Check if we should generate a suggestion
-    const lastSuggestion = aiSuggestions
-      .filter(s => s.callId === callId)
-      .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))[0];
-    
+    const { data: lastSuggestion, error: suggestionError } = await supabase
+      .from('ai_suggestions')
+      .select('*')
+      .eq('call_id', callId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .single();
+
+    if (suggestionError && suggestionError.code !== 'PGRST116') {
+      console.error('Error fetching last suggestion:', suggestionError);
+    }
+
     const timeSinceLastSuggestion = lastSuggestion 
-      ? Date.now() - new Date(lastSuggestion.timestamp).getTime()
+      ? Date.now() - new Date(lastSuggestion.created_at).getTime()
       : config.AI_SUGGESTION_INTERVAL + 1;
 
     if (!forceGenerate && timeSinceLastSuggestion < config.AI_SUGGESTION_INTERVAL) {
       return; // Too soon for another suggestion
     }
 
-    if (callTranscripts.length < 2) {
+    if (!transcripts || transcripts.length < 2) {
       return; // Need more conversation context
     }
 
     // Build document context
-    const documentContext = userDocuments
-      .map(doc => doc.context ? JSON.stringify(doc.context) : '')
-      .join('\n');
+    const documentContext = documents
+      ?.map(doc => doc.content || '')
+      .join('\n') || '';
 
     // Generate suggestion
     const suggestion = await aiService.generateSuggestion(
       callId,
-      callTranscripts.slice(-10), // Last 10 transcript entries
+      transcripts.slice(0, 10), // Last 10 transcript entries
       documentContext
     );
 
-    // Store suggestion
-    const suggestionWithUser = {
-      ...suggestion,
-      userId
-    };
-    aiSuggestions.push(suggestionWithUser);
+    // Store suggestion in Supabase
+    const { data: storedSuggestion, error: storeError } = await supabase
+      .from('ai_suggestions')
+      .insert({
+        call_id: callId,
+        user_id: userId,
+        type: suggestion.type,
+        text: suggestion.text,
+        confidence: suggestion.confidence,
+        context: suggestion.context,
+        reasoning: suggestion.reasoning
+      })
+      .select()
+      .single();
+
+    if (storeError) {
+      console.error('Error storing suggestion:', storeError);
+      return;
+    }
 
     // Emit to call participants
-    io.to(callId).emit('newSuggestion', suggestionWithUser);
+    io.to(callId).emit('newSuggestion', storedSuggestion);
 
   } catch (error) {
     console.error('Failed to generate AI suggestion:', error);
@@ -321,6 +275,7 @@ app.get('/api/health', (req, res) => {
     status: 'OK', 
     timestamp: new Date().toISOString(),
     services: {
+      supabase: !!config.SUPABASE_URL,
       ai: !!config.OPENAI_API_KEY,
       transcription: !!config.ASSEMBLYAI_API_KEY,
       zoom: !!config.ZOOM_SDK_KEY,
@@ -343,6 +298,7 @@ const PORT = config.PORT;
 server.listen(PORT, () => {
   console.log(`🚀 AI Sales Call Assistant Server running on port ${PORT}`);
   console.log(`📡 WebSocket server ready for real-time communication`);
+  console.log(`🗄️  Supabase: ${config.SUPABASE_URL ? '✅' : '❌'} Connected`);
   console.log(`🤖 AI Services: ${config.OPENAI_API_KEY ? '✅' : '❌'} OpenAI`);
   console.log(`🎤 Transcription: ${config.ASSEMBLYAI_API_KEY ? '✅' : '❌'} AssemblyAI`);
   console.log(`📹 Zoom SDK: ${config.ZOOM_SDK_KEY ? '✅' : '❌'} Configured`);

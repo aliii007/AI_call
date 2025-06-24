@@ -45,34 +45,34 @@ const App: React.FC = () => {
       <AuthProvider>
         <Router>
           <Routes>
-          <Route path="/signin" element={<SignInPage />} />
-          <Route path="/signup" element={<SignUpPage />} />
-          <Route path="/" element={
-            <AppLayout>
-              <Dashboard />
-            </AppLayout>
-          } />
-          <Route path="/call/:id" element={
-            <AppLayout>
-              <CallPage />
-            </AppLayout>
-          } />
-          <Route path="/documents" element={
-            <AppLayout>
-              <DocumentsPage />
-            </AppLayout>
-          } />
-          <Route path="/analytics" element={
-            <AppLayout>
-              <AnalyticsPage />
-            </AppLayout>
-          } />
-          <Route path="/settings" element={
-            <AppLayout>
-              <SettingsPage />
-            </AppLayout>
-          } />
-          <Route path="*" element={<Navigate to="/" replace />} />
+            <Route path="/signin" element={<SignInPage />} />
+            <Route path="/signup" element={<SignUpPage />} />
+            <Route path="/" element={
+              <AppLayout>
+                <Dashboard />
+              </AppLayout>
+            } />
+            <Route path="/call/:id" element={
+              <AppLayout>
+                <CallPage />
+              </AppLayout>
+            } />
+            <Route path="/documents" element={
+              <AppLayout>
+                <DocumentsPage />
+              </AppLayout>
+            } />
+            <Route path="/analytics" element={
+              <AppLayout>
+                <AnalyticsPage />
+              </AppLayout>
+            } />
+            <Route path="/settings" element={
+              <AppLayout>
+                <SettingsPage />
+              </AppLayout>
+            } />
+            <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Router>
       </AuthProvider>

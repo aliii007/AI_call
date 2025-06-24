@@ -8,7 +8,8 @@ import {
   BarChart3, 
   Settings, 
   LogOut,
-  Bot
+  Bot,
+  User
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 
@@ -22,7 +23,15 @@ const navigation = [
 
 export const Sidebar: React.FC = () => {
   const location = useLocation();
-  const { user, logout } = useAuth();
+  const { profile, signOut } = useAuth();
+
+  const handleSignOut = async () => {
+    try {
+      await signOut();
+    } catch (error) {
+      console.error('Sign out error:', error);
+    }
+  };
 
   return (
     <div className="flex flex-col h-screen bg-gray-900 text-white w-64">
@@ -59,18 +68,25 @@ export const Sidebar: React.FC = () => {
       {/* User Profile */}
       <div className="px-4 py-4 border-t border-gray-700">
         <div className="flex items-center px-4 py-2">
-          <img
-            src={user?.avatar}
-            alt={user?.name}
-            className="h-8 w-8 rounded-full"
-          />
+          {profile?.avatar_url ? (
+            <img
+              src={profile.avatar_url}
+              alt={profile.name}
+              className="h-8 w-8 rounded-full"
+            />
+          ) : (
+            <div className="h-8 w-8 rounded-full bg-primary-600 flex items-center justify-center">
+              <User className="h-4 w-4 text-white" />
+            </div>
+          )}
           <div className="ml-3 flex-1">
-            <p className="text-sm font-medium">{user?.name}</p>
-            <p className="text-xs text-gray-400">{user?.email}</p>
+            <p className="text-sm font-medium">{profile?.name || 'User'}</p>
+            <p className="text-xs text-gray-400">{profile?.department || 'Sales'}</p>
           </div>
           <button
-            onClick={logout}
+            onClick={handleSignOut}
             className="text-gray-400 hover:text-white transition-colors"
+            title="Sign Out"
           >
             <LogOut className="h-4 w-4" />
           </button>
