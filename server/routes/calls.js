@@ -1,133 +1,295 @@
 import express from 'express';
-import { supabase } from '../lib/supabase.js';
-import authenticate from '../middleware/authenticate.js';
+import { catchAsync } from '../middleware/errorHandler.js';
+import { validateCallCreation, validateObjectId, validatePagination } from '../middleware/validation.js';
+import { authenticate } from '../middleware/auth.js';
+import Call from '../models/Call.js';
+import Transcript from '../models/Transcript.js';
+import AISuggestion from '../models/AISuggestion.js';
 
 const router = express.Router();
 
-// Get user's calls
-router.get('/', authenticate, async (req, res) => {
-  try {
-    const { data, error } = await supabase
-      .from('calls')
-      .select('*')
-      .eq('user_id', req.user.id)
-      .order('created_at', { ascending: false });
+// Apply authentication to all routes
+router.use(authenticate);
 
-    if (error) {
-      throw error;
-    }
+// Get user's calls with pagination and filtering
+router.get('/', validatePagination, catchAsync(async (req, res) => {
+  const { page, limit, skip } = req.pagination;
+  const { status, platform, search, sortBy = 'createdAt', sortOrder = 'desc' } = req.query;
 
-    res.json(data);
-  } catch (error) {
-    console.error('Error fetching calls:', error);
-    res.status(500).json({ error: 'Failed to fetch calls' });
+  // Build filter
+  const filter = { user: req.user._id };
+
+  if (status) {
+    filter.status = status;
   }
-});
 
-// Create a new call
-router.post('/', authenticate, async (req, res) => {
-  try {
-    const callData = {
-      user_id: req.user.id,
-      title: req.body.title || 'Untitled Call',
-      start_time: req.body.start_time || new Date().toISOString(),
-      status: req.body.status || 'scheduled',
-      meeting_id: req.body.meeting_id,
-      platform: req.body.platform,
-      participants: req.body.participants || [],
-      performance_data: req.body.performance_data || {}
-    };
-
-    const { data, error } = await supabase
-      .from('calls')
-      .insert(callData)
-      .select()
-      .single();
-
-    if (error) {
-      throw error;
-    }
-
-    res.status(201).json(data);
-  } catch (error) {
-    console.error('Error creating call:', error);
-    res.status(500).json({ error: 'Failed to create call' });
+  if (platform) {
+    filter.platform = platform;
   }
-});
 
-// Get a specific call
-router.get('/:id', authenticate, async (req, res) => {
-  try {
-    const { data, error } = await supabase
-      .from('calls')
-      .select(`
-        *,
-        transcripts(*),
-        ai_suggestions(*)
-      `)
-      .eq('id', req.params.id)
-      .eq('user_id', req.user.id)
-      .single();
-
-    if (error) {
-      throw error;
-    }
-
-    if (!data) {
-      return res.status(404).json({ error: 'Call not found' });
-    }
-
-    res.json(data);
-  } catch (error) {
-    console.error('Error fetching call:', error);
-    res.status(500).json({ error: 'Failed to fetch call' });
+  if (search) {
+    filter.$or = [
+      { title: { $regex: search, $options: 'i' } },
+      { notes: { $regex: search, $options: 'i' } }
+    ];
   }
-});
 
-// Update a call
-router.put('/:id', authenticate, async (req, res) => {
-  try {
-    const { data, error } = await supabase
-      .from('calls')
-      .update(req.body)
-      .eq('id', req.params.id)
-      .eq('user_id', req.user.id)
-      .select()
-      .single();
+  // Build sort
+  const sort = {};
+  sort[sortBy] = sortOrder === 'desc' ? -1 : 1;
 
-    if (error) {
-      throw error;
+  // Get calls with pagination
+  const [calls, total] = await Promise.all([
+    Call.find(filter)
+      .sort(sort)
+      .skip(skip)
+      .limit(limit)
+      .populate('user', 'name email')
+      .lean(),
+    Call.countDocuments(filter)
+  ]);
+
+  // Calculate pagination info
+  const totalPages = Math.ceil(total / limit);
+  const hasNextPage = page < totalPages;
+  const hasPrevPage = page > 1;
+
+  res.json({
+    success: true,
+    data: {
+      calls,
+      pagination: {
+        currentPage: page,
+        totalPages,
+        totalItems: total,
+        itemsPerPage: limit,
+        hasNextPage,
+        hasPrevPage
+      }
     }
+  });
+}));
 
-    if (!data) {
-      return res.status(404).json({ error: 'Call not found' });
+// Create new call
+router.post('/', validateCallCreation, catchAsync(async (req, res) => {
+  const callData = {
+    ...req.body,
+    user: req.user._id
+  };
+
+  const call = await Call.create(callData);
+  await call.populate('user', 'name email');
+
+  res.status(201).json({
+    success: true,
+    message: 'Call created successfully',
+    data: {
+      call
     }
+  });
+}));
 
-    res.json(data);
-  } catch (error) {
-    console.error('Error updating call:', error);
-    res.status(500).json({ error: 'Failed to update call' });
+// Get specific call with transcripts and suggestions
+router.get('/:id', validateObjectId('id'), catchAsync(async (req, res) => {
+  const call = await Call.findOne({
+    _id: req.params.id,
+    user: req.user._id
+  }).populate('user', 'name email');
+
+  if (!call) {
+    return res.status(404).json({
+      success: false,
+      message: 'Call not found'
+    });
   }
-});
 
-// Delete a call
-router.delete('/:id', authenticate, async (req, res) => {
-  try {
-    const { error } = await supabase
-      .from('calls')
-      .delete()
-      .eq('id', req.params.id)
-      .eq('user_id', req.user.id);
+  // Get transcripts and suggestions
+  const [transcripts, suggestions] = await Promise.all([
+    Transcript.find({ call: call._id }).sort({ timestamp: 1 }),
+    AISuggestion.find({ call: call._id }).sort({ createdAt: -1 })
+  ]);
 
-    if (error) {
-      throw error;
+  res.json({
+    success: true,
+    data: {
+      call,
+      transcripts,
+      suggestions
     }
+  });
+}));
 
-    res.json({ message: 'Call deleted successfully' });
-  } catch (error) {
-    console.error('Error deleting call:', error);
-    res.status(500).json({ error: 'Failed to delete call' });
+// Update call
+router.patch('/:id', validateObjectId('id'), catchAsync(async (req, res) => {
+  // Fields that can be updated
+  const allowedFields = [
+    'title', 'endTime', 'duration', 'status', 'participants',
+    'performanceData', 'recording', 'notes', 'tags'
+  ];
+
+  const updates = {};
+  Object.keys(req.body).forEach(key => {
+    if (allowedFields.includes(key)) {
+      updates[key] = req.body[key];
+    }
+  });
+
+  const call = await Call.findOneAndUpdate(
+    { _id: req.params.id, user: req.user._id },
+    updates,
+    {
+      new: true,
+      runValidators: true
+    }
+  ).populate('user', 'name email');
+
+  if (!call) {
+    return res.status(404).json({
+      success: false,
+      message: 'Call not found'
+    });
   }
-});
+
+  res.json({
+    success: true,
+    message: 'Call updated successfully',
+    data: {
+      call
+    }
+  });
+}));
+
+// Delete call
+router.delete('/:id', validateObjectId('id'), catchAsync(async (req, res) => {
+  const call = await Call.findOneAndDelete({
+    _id: req.params.id,
+    user: req.user._id
+  });
+
+  if (!call) {
+    return res.status(404).json({
+      success: false,
+      message: 'Call not found'
+    });
+  }
+
+  // Delete associated transcripts and suggestions
+  await Promise.all([
+    Transcript.deleteMany({ call: call._id }),
+    AISuggestion.deleteMany({ call: call._id })
+  ]);
+
+  res.json({
+    success: true,
+    message: 'Call deleted successfully'
+  });
+}));
+
+// Get call statistics
+router.get('/:id/stats', validateObjectId('id'), catchAsync(async (req, res) => {
+  const call = await Call.findOne({
+    _id: req.params.id,
+    user: req.user._id
+  });
+
+  if (!call) {
+    return res.status(404).json({
+      success: false,
+      message: 'Call not found'
+    });
+  }
+
+  // Get transcript summary
+  const transcriptSummary = await Transcript.getCallSummary(call._id);
+
+  // Get suggestion stats
+  const suggestionStats = await AISuggestion.aggregate([
+    { $match: { call: call._id } },
+    {
+      $group: {
+        _id: null,
+        totalSuggestions: { $sum: 1 },
+        usedSuggestions: { $sum: { $cond: ['$used', 1, 0] } },
+        averageConfidence: { $avg: '$confidence' },
+        suggestionsByType: { $push: '$type' }
+      }
+    }
+  ]);
+
+  const stats = suggestionStats[0] || {
+    totalSuggestions: 0,
+    usedSuggestions: 0,
+    averageConfidence: 0,
+    suggestionsByType: []
+  };
+
+  res.json({
+    success: true,
+    data: {
+      call: {
+        id: call._id,
+        title: call.title,
+        duration: call.duration,
+        status: call.status
+      },
+      transcriptSummary,
+      suggestionStats: stats
+    }
+  });
+}));
+
+// Start call (update status to active)
+router.patch('/:id/start', validateObjectId('id'), catchAsync(async (req, res) => {
+  const call = await Call.findOneAndUpdate(
+    { _id: req.params.id, user: req.user._id },
+    {
+      status: 'active',
+      startTime: new Date()
+    },
+    { new: true }
+  );
+
+  if (!call) {
+    return res.status(404).json({
+      success: false,
+      message: 'Call not found'
+    });
+  }
+
+  res.json({
+    success: true,
+    message: 'Call started successfully',
+    data: {
+      call
+    }
+  });
+}));
+
+// End call (update status to completed)
+router.patch('/:id/end', validateObjectId('id'), catchAsync(async (req, res) => {
+  const call = await Call.findOneAndUpdate(
+    { _id: req.params.id, user: req.user._id },
+    {
+      status: 'completed',
+      endTime: new Date()
+    },
+    { new: true }
+  );
+
+  if (!call) {
+    return res.status(404).json({
+      success: false,
+      message: 'Call not found'
+    });
+  }
+
+  res.json({
+    success: true,
+    message: 'Call ended successfully',
+    data: {
+      call
+    }
+  });
+}));
 
 export default router;
