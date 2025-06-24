@@ -1,6 +1,6 @@
 # AI Sales Call Assistant
 
-A comprehensive AI-powered sales call assistant that provides real-time suggestions, transcription, and analytics during video calls. Built with React, Node.js, and integrated with Zoom, Google Meet, OpenAI, and AssemblyAI.
+A comprehensive AI-powered sales call assistant that provides real-time suggestions, transcription, and analytics during video calls. Built with React, Node.js, MongoDB, and integrated with Zoom, Google Meet, OpenAI, and AssemblyAI.
 
 ## 🚀 Features
 
@@ -35,6 +35,7 @@ A comprehensive AI-powered sales call assistant that provides real-time suggesti
 
 ### Backend
 - **Node.js** with Express
+- **MongoDB** with Mongoose ODM
 - **Socket.io** for WebSocket communication
 - **JWT Authentication**
 - **Multer** for file uploads
@@ -44,12 +45,15 @@ A comprehensive AI-powered sales call assistant that provides real-time suggesti
 
 ## 📋 Prerequisites
 
-Before running the application, you'll need API keys for:
+Before running the application, you'll need:
 
-1. **OpenAI API** - For AI suggestions and conversation analysis
-2. **AssemblyAI** - For real-time transcription
-3. **Zoom SDK** - For Zoom meeting integration
-4. **Google Cloud Console** - For Google Meet integration
+1. **Node.js** (v18 or higher)
+2. **MongoDB** (local installation or MongoDB Atlas)
+3. API keys for:
+   - **OpenAI API** - For AI suggestions and conversation analysis
+   - **AssemblyAI** - For real-time transcription
+   - **Zoom SDK** - For Zoom meeting integration
+   - **Google Cloud Console** - For Google Meet integration
 
 ## 🚀 Quick Start
 
@@ -60,14 +64,44 @@ Before running the application, you'll need API keys for:
 npm install
 ```
 
-### 2. Environment Configuration
+### 2. Database Setup
+
+**Option A: Local MongoDB**
+```bash
+# Install MongoDB locally
+# macOS
+brew install mongodb-community
+
+# Ubuntu
+sudo apt-get install mongodb
+
+# Start MongoDB service
+mongod
+```
+
+**Option B: MongoDB Atlas (Cloud)**
+1. Create account at [MongoDB Atlas](https://www.mongodb.com/atlas)
+2. Create a new cluster
+3. Get your connection string
+4. Use it in your `.env` file
+
+### 3. Environment Configuration
 
 Create a `.env` file in the root directory:
 
 ```env
+# MongoDB Configuration
+MONGODB_URI=mongodb://localhost:27017/ai-sales-assistant
+# Or for MongoDB Atlas:
+# MONGODB_URI=mongodb+srv://username:password@cluster.mongodb.net/ai-sales-assistant
+
+# JWT Configuration
+JWT_SECRET=your-super-secret-jwt-key-here
+JWT_EXPIRES_IN=7d
+
 # Server Configuration
 PORT=3001
-JWT_SECRET=your-super-secret-jwt-key-here
+NODE_ENV=development
 
 # OpenAI Configuration
 OPENAI_API_KEY=sk-your-openai-api-key-here
@@ -91,7 +125,7 @@ TRANSCRIPTION_LANGUAGE=en-US
 AI_CONFIDENCE_THRESHOLD=0.8
 ```
 
-### 3. Start the Application
+### 4. Start the Application
 
 ```bash
 # Start both frontend and backend
@@ -99,7 +133,7 @@ npm run dev
 
 # Or start them separately:
 # Backend: npm run server
-# Frontend: npm run dev
+# Frontend: vite (in another terminal)
 ```
 
 The application will be available at:
@@ -130,7 +164,7 @@ The application will be available at:
 2. Create a new project or select existing
 3. Enable Google Calendar API
 4. Create OAuth 2.0 credentials
-5. Add authorized redirect URI: `http://localhost:3001/auth/google/callback`
+5. Add authorized redirect URI: `http://localhost:3001/api/meetings/google/callback`
 6. Add credentials to your `.env` file
 
 ## 📱 Usage
@@ -155,20 +189,23 @@ The application will be available at:
 
 ## 🔌 API Endpoints
 
-### AI Services
-- `POST /api/ai/suggestion` - Generate AI suggestion
-- `POST /api/ai/analyze` - Analyze conversation
-- `POST /api/ai/process-document` - Process document for context
+### Authentication
+- `POST /api/auth/register` - Register new user
+- `POST /api/auth/login` - Login user
+- `GET /api/auth/me` - Get current user profile
+- `PATCH /api/auth/me` - Update user profile
 
-### Transcription
-- `POST /api/ai/transcription/start` - Start real-time transcription
-- `POST /api/ai/transcription/stop` - Stop transcription
-- `POST /api/ai/transcription/file` - Transcribe audio file
+### Calls
+- `GET /api/calls` - Get user's calls
+- `POST /api/calls` - Create new call
+- `GET /api/calls/:id` - Get specific call
+- `PATCH /api/calls/:id` - Update call
+- `DELETE /api/calls/:id` - Delete call
 
 ### Meetings
 - `POST /api/meetings/zoom/create` - Create Zoom meeting
 - `GET /api/meetings/zoom/:meetingId` - Get meeting details
-- `POST /api/meetings/meet/create` - Create Google Meet
+- `POST /api/meetings/google/create` - Create Google Meet
 
 ### WebSocket Events
 - `joinCall` - Join call room for real-time updates
@@ -186,7 +223,7 @@ src/
 │   ├── layout/         # Layout components
 │   └── ui/             # Base UI components
 ├── pages/              # Page components
-├── services/           # API services
+├── lib/                # API services and utilities
 ├── hooks/              # Custom React hooks
 ├── contexts/           # React contexts
 └── types/              # TypeScript definitions
@@ -196,24 +233,48 @@ src/
 ```
 server/
 ├── config/             # Configuration files
+├── models/             # MongoDB models
 ├── services/           # Business logic services
-│   ├── aiService.js    # OpenAI integration
-│   ├── transcriptionService.js  # AssemblyAI integration
-│   ├── zoomService.js  # Zoom SDK integration
-│   └── meetService.js  # Google Meet integration
 ├── routes/             # API routes
 ├── middleware/         # Express middleware
 └── index.js           # Main server file
 ```
 
+## 🗄️ Database Schema
+
+### Users Collection
+- Authentication and profile information
+- Preferences and settings
+- Role-based access control
+
+### Calls Collection
+- Call metadata and status
+- Performance data and metrics
+- Meeting platform integration
+
+### Transcripts Collection
+- Real-time speech-to-text data
+- Speaker identification
+- Confidence scores and timing
+
+### AI Suggestions Collection
+- Generated suggestions with context
+- Usage tracking and feedback
+- Performance analytics
+
+### Documents Collection
+- Uploaded sales materials
+- AI-processed content and context
+- Access tracking and metadata
+
 ## 🔒 Security
 
 - JWT-based authentication
-- API key validation
-- Webhook signature verification
-- File upload restrictions
-- CORS configuration
+- Password hashing with bcrypt
+- API rate limiting
 - Input validation and sanitization
+- CORS configuration
+- Webhook signature verification
 
 ## 🚀 Deployment
 
@@ -222,12 +283,12 @@ Ensure all required environment variables are set in production:
 - Use strong JWT secrets
 - Configure proper CORS origins
 - Set up SSL certificates for webhooks
-- Use production API endpoints
+- Use production database URLs
 
 ### Recommended Deployment Platforms
 - **Frontend**: Vercel, Netlify
-- **Backend**: Railway, Render, AWS EC2
-- **Database**: PostgreSQL, MongoDB Atlas
+- **Backend**: Railway, Render, AWS EC2, DigitalOcean
+- **Database**: MongoDB Atlas, AWS DocumentDB
 - **File Storage**: AWS S3, Cloudinary
 
 ## 🤝 Contributing

@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Video, Settings, Users, Mic, MicOff } from 'lucide-react';
 import { Card } from '../ui/Card';
 import { Button } from '../ui/Button';
-import APIService from '../../services/apiService';
+import { APIService } from '../../lib/api';
 
 interface ZoomIntegrationProps {
   callId: string;
@@ -76,11 +76,14 @@ export const ZoomIntegration: React.FC<ZoomIntegrationProps> = ({
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
       };
 
-      const meeting = await APIService.createZoomMeeting('me', meetingData);
-      setMeetingData(meeting);
+      const response = await APIService.createZoomMeeting(meetingData);
       
-      if (onMeetingStart) {
-        onMeetingStart(meeting);
+      if (response.success) {
+        setMeetingData(response.data.meeting);
+        
+        if (onMeetingStart) {
+          onMeetingStart(response.data.meeting);
+        }
       }
     } catch (error) {
       console.error('Failed to create Zoom meeting:', error);
@@ -99,7 +102,13 @@ export const ZoomIntegration: React.FC<ZoomIntegrationProps> = ({
       setIsLoading(true);
 
       // Generate SDK signature
-      const { signature } = await APIService.generateZoomSDKSignature(meetingNumber, 0);
+      const response = await APIService.generateZoomSDKSignature(meetingNumber, 0);
+      
+      if (!response.success) {
+        throw new Error('Failed to generate SDK signature');
+      }
+
+      const signature = response.data.signature;
 
       // Initialize Zoom SDK
       window.ZoomMtg.setZoomJSLib('https://source.zoom.us/2.18.0/lib', '/av');

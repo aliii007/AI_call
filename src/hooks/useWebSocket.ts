@@ -58,7 +58,6 @@ export const useWebSocket = (callId?: string, userId?: string) => {
 
         // Attempt to reconnect after 3 seconds
         if (reason === 'io server disconnect') {
-          // Server initiated disconnect, don't reconnect
           return;
         }
 
@@ -82,7 +81,7 @@ export const useWebSocket = (callId?: string, userId?: string) => {
         console.log('New transcript received:', transcript);
         setData(prev => ({
           ...prev,
-          transcript: [...prev.transcript.slice(-50), transcript] // Keep last 50 entries
+          transcript: [...prev.transcript.slice(-50), transcript]
         }));
       });
 
@@ -91,7 +90,7 @@ export const useWebSocket = (callId?: string, userId?: string) => {
         console.log('New AI suggestion received:', suggestion);
         setData(prev => ({
           ...prev,
-          suggestions: [...prev.suggestions.slice(-10), suggestion] // Keep last 10 suggestions
+          suggestions: [...prev.suggestions.slice(-10), suggestion]
         }));
       });
 
@@ -105,13 +104,7 @@ export const useWebSocket = (callId?: string, userId?: string) => {
         }));
       });
 
-      // Document processing events
-      socket.on('documentProcessed', (document: any) => {
-        console.log('Document processed:', document);
-        // You can emit a custom event or update state as needed
-      });
-
-      // Meeting events (from Zoom/Meet webhooks)
+      // Meeting events
       socket.on('meetingStarted', ({ meetingId }: { meetingId: string }) => {
         console.log('Meeting started:', meetingId);
       });
@@ -147,7 +140,6 @@ export const useWebSocket = (callId?: string, userId?: string) => {
       }
 
       if (socketRef.current) {
-        // Leave the call room
         socketRef.current.emit('leaveCall', { callId });
         socketRef.current.disconnect();
         socketRef.current = null;

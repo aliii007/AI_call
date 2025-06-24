@@ -13,7 +13,7 @@ import {
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { useAuth } from '../contexts/AuthContext';
-import { supabase } from '../lib/supabase';
+import { APIService } from '../lib/api';
 
 const stats = [
   { name: 'Total Calls', value: '47', icon: Phone, change: '+12%', positive: true },
@@ -23,12 +23,12 @@ const stats = [
 ];
 
 interface Call {
-  id: string;
+  _id: string;
   title: string;
   duration: number;
   status: string;
-  created_at: string;
-  performance_data: any;
+  createdAt: string;
+  performanceData: any;
 }
 
 export const Dashboard: React.FC = () => {
@@ -42,18 +42,11 @@ export const Dashboard: React.FC = () => {
 
   const fetchRecentCalls = async () => {
     try {
-      const { data, error } = await supabase
-        .from('calls')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(4);
-
-      if (error) {
-        console.error('Error fetching calls:', error);
-        return;
+      const response = await APIService.getCalls({ limit: 4 });
+      
+      if (response.success) {
+        setRecentCalls(response.data.calls || []);
       }
-
-      setRecentCalls(data || []);
     } catch (error) {
       console.error('Error fetching calls:', error);
     } finally {
@@ -63,7 +56,7 @@ export const Dashboard: React.FC = () => {
 
   const getCallScore = (performanceData: any) => {
     if (!performanceData || typeof performanceData !== 'object') {
-      return Math.floor(Math.random() * 30) + 70; // Random score between 70-100
+      return Math.floor(Math.random() * 30) + 70;
     }
     return performanceData.score || Math.floor(Math.random() * 30) + 70;
   };
@@ -157,7 +150,7 @@ export const Dashboard: React.FC = () => {
               <div className="space-y-4">
                 {recentCalls.map((call, index) => (
                   <motion.div
-                    key={call.id}
+                    key={call._id}
                     initial={{ opacity: 0, x: -20 }}
                     animate={{ opacity: 1, x: 0 }}
                     transition={{ delay: index * 0.1 }}
@@ -170,21 +163,21 @@ export const Dashboard: React.FC = () => {
                       <div>
                         <p className="font-medium text-gray-900">{call.title}</p>
                         <p className="text-sm text-gray-600">
-                          {formatDuration(call.duration)} • {new Date(call.created_at).toLocaleDateString()}
+                          {formatDuration(call.duration)} • {new Date(call.createdAt).toLocaleDateString()}
                         </p>
                       </div>
                     </div>
                     <div className="flex items-center space-x-4">
                       <div className={`
                         px-3 py-1 rounded-full text-sm font-medium
-                        ${getCallScore(call.performance_data) >= 80 
+                        ${getCallScore(call.performanceData) >= 80 
                           ? 'bg-success-100 text-success-600' 
-                          : getCallScore(call.performance_data) >= 70 
+                          : getCallScore(call.performanceData) >= 70 
                           ? 'bg-warning-100 text-warning-600'
                           : 'bg-error-100 text-error-600'
                         }
                       `}>
-                        {getCallScore(call.performance_data)}%
+                        {getCallScore(call.performanceData)}%
                       </div>
                       <span className="px-2 py-1 bg-green-100 text-green-600 rounded-full text-xs font-medium">
                         {call.status}

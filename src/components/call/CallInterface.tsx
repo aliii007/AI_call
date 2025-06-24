@@ -13,6 +13,7 @@ import {
   Volume2
 } from 'lucide-react';
 import { useWebSocket } from '../../hooks/useWebSocket';
+import { useAuth } from '../../contexts/AuthContext';
 import { TranscriptDisplay } from './TranscriptDisplay';
 import { AISuggestionPanel } from './AISuggestionPanel';
 import { CallControls } from './CallControls';
@@ -27,11 +28,15 @@ export const CallInterface: React.FC<CallInterfaceProps> = ({
   callId, 
   isOverlayMode = false 
 }) => {
+  const { user } = useAuth();
   const [isCallActive, setIsCallActive] = useState(true);
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoOff, setIsVideoOff] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
-  const { transcript, suggestions, isConnected, markSuggestionUsed } = useWebSocket(callId);
+  const { transcript, suggestions, isConnected, markSuggestionUsed } = useWebSocket(
+    callId, 
+    user?._id
+  );
 
   const handleEndCall = () => {
     setIsCallActive(false);
@@ -125,7 +130,7 @@ export const CallInterface: React.FC<CallInterfaceProps> = ({
               ) : (
                 <Video className="h-16 w-16 mx-auto mb-4" />
               )}
-              <p className="text-lg font-medium">Zoom Call Integration</p>
+              <p className="text-lg font-medium">Video Call Integration</p>
               <p className="text-sm opacity-75">AI monitoring in progress...</p>
             </div>
           </Card>

@@ -1,21 +1,22 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { User, Session, AuthError } from '@supabase/supabase-js';
-import { supabase } from '../lib/supabase';
+import { APIService } from '../lib/api';
 
 interface Profile {
-  id: string;
+  _id: string;
   name: string;
+  email: string;
   avatar_url: string | null;
   department: string | null;
   phone: string | null;
-  created_at: string;
-  updated_at: string;
+  role: string;
+  preferences?: any;
+  createdAt: string;
+  updatedAt: string;
 }
 
 interface AuthContextType {
-  user: User | null;
+  user: Profile | null;
   profile: Profile | null;
-  session: Session | null;
   loading: boolean;
   signUp: (email: string, password: string, name: string) => Promise<void>;
   signIn: (email: string, password: string) => Promise<void>;
@@ -34,96 +35,47 @@ export const useAuth = () => {
 };
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<User | null>(null);
-  const [profile, setProfile] = useState<Profile | null>(null);
-  const [session, setSession] = useState<Session | null>(null);
+  const [user, setUser] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Get initial session
-    const getInitialSession = async () => {
-      const { data: { session }, error } = await supabase.auth.getSession();
+    // Check for existing token and validate
+    const initializeAuth = async () => {
+      const token = localStorage.getItem('authToken');
       
-      if (error) {
-        console.error('Error getting session:', error);
-      } else {
-        setSession(session);
-        setUser(session?.user ?? null);
-        
-        if (session?.user) {
-          await fetchProfile(session.user.id);
+      if (token) {
+        try {
+          const response = await APIService.getProfile();
+          if (response.success) {
+            setUser(response.data.user);
+          }
+        } catch (error) {
+          console.error('Token validation failed:', error);
+          localStorage.removeItem('authToken');
         }
       }
       
       setLoading(false);
     };
 
-    getInitialSession();
-
-    // Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
-        console.log('Auth state changed:', event, session);
-        
-        setSession(session);
-        setUser(session?.user ?? null);
-        
-        if (session?.user) {
-          await fetchProfile(session.user.id);
-        } else {
-          setProfile(null);
-        }
-        
-        setLoading(false);
-      }
-    );
-
-    return () => subscription.unsubscribe();
+    initializeAuth();
   }, []);
-
-  const fetchProfile = async (userId: string) => {
-    try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', userId)
-        .single();
-
-      if (error) {
-        console.error('Error fetching profile:', error);
-        return;
-      }
-
-      setProfile(data);
-    } catch (error) {
-      console.error('Error fetching profile:', error);
-    }
-  };
 
   const signUp = async (email: string, password: string, name: string) => {
     setLoading(true);
     
     try {
-      const { data, error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          data: {
-            name,
-            avatar_url: `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=random`
-          }
-        }
-      });
-
-      if (error) {
-        throw error;
+      const response = await APIService.register(name, email, password);
+      
+      if (response.success) {
+        localStorage.setItem('authToken', response.data.token);
+        setUser(response.data.user);
+      } else {
+        throw new Error(response.message || 'Registration failed');
       }
-
-      // The profile will be created automatically via the database trigger
-      console.log('User signed up successfully:', data);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Sign up error:', error);
-      throw error;
+      throw new Error(error.response?.data?.message || error.message || 'Registration failed');
     } finally {
       setLoading(false);
     }
@@ -133,19 +85,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setLoading(true);
     
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email,
-        password
-      });
-
-      if (error) {
-        throw error;
+      const response = await APIService.login(email, password);
+      
+      if (response.success) {
+        localStorage.setItem('authToken', response.data.token);
+        setUser(response.data.user);
+      } else {
+        throw new Error(response.message || 'Login failed');
       }
-
-      console.log('User signed in successfully:', data);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Sign in error:', error);
-      throw error;
+      throw new Error(error.response?.data?.message || error.message || 'Login failed');
     } finally {
       setLoading(false);
     }
@@ -155,15 +105,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setLoading(true);
     
     try {
-      const { error } = await supabase.auth.signOut();
-      
-      if (error) {
-        throw error;
-      }
-
+      localStorage.removeItem('authToken');
       setUser(null);
-      setProfile(null);
-      setSession(null);
     } catch (error) {
       console.error('Sign out error:', error);
       throw error;
@@ -173,34 +116,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const updateProfile = async (updates: Partial<Profile>) => {
-    if (!user) {
-      throw new Error('No user logged in');
-    }
-
     try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .update(updates)
-        .eq('id', user.id)
-        .select()
-        .single();
-
-      if (error) {
-        throw error;
+      const response = await APIService.updateProfile(updates);
+      
+      if (response.success) {
+        setUser(response.data.user);
+      } else {
+        throw new Error(response.message || 'Profile update failed');
       }
-
-      setProfile(data);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Update profile error:', error);
-      throw error;
+      throw new Error(error.response?.data?.message || error.message || 'Profile update failed');
     }
   };
 
   return (
     <AuthContext.Provider value={{
       user,
-      profile,
-      session,
+      profile: user, // For compatibility
       loading,
       signUp,
       signIn,
