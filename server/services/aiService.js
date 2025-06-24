@@ -36,7 +36,7 @@ class AIService {
                 },
                 type: {
                   type: 'string',
-                  enum: ['objection_handling', 'closing', 'question', 'pricing', 'feature_highlight', 'rapport_building'],
+                  enum: ['objection_handling', 'closing', 'question', 'pricing', 'feature_highlight', 'rapport_building', 'next_steps', 'follow_up'],
                   description: 'The type of suggestion'
                 },
                 confidence: {
@@ -46,6 +46,11 @@ class AIService {
                 reasoning: {
                   type: 'string',
                   description: 'Brief explanation of why this suggestion is relevant'
+                },
+                priority: {
+                  type: 'string',
+                  enum: ['low', 'medium', 'high', 'urgent'],
+                  description: 'Priority level of the suggestion'
                 }
               },
               required: ['suggestion', 'type', 'confidence']
@@ -66,9 +71,14 @@ class AIService {
           type: suggestionData.type,
           confidence: suggestionData.confidence,
           reasoning: suggestionData.reasoning,
+          priority: suggestionData.priority || 'medium',
           context: this.extractRelevantContext(transcriptHistory),
           timestamp: new Date(),
-          used: false
+          used: false,
+          triggerContext: {
+            lastTranscripts: transcriptHistory.slice(-3).map(t => t.text),
+            conversationPhase: this.detectConversationPhase(transcriptHistory)
+          }
         };
       }
 
@@ -133,6 +143,16 @@ class AIService {
                   type: 'array',
                   items: { type: 'string' },
                   description: 'Recommended next steps'
+                },
+                conversation_phase: {
+                  type: 'string',
+                  enum: ['opening', 'discovery', 'presentation', 'objection', 'closing', 'follow_up'],
+                  description: 'Current phase of the sales conversation'
+                },
+                emotional_state: {
+                  type: 'string',
+                  enum: ['excited', 'interested', 'neutral', 'concerned', 'frustrated'],
+                  description: 'Detected emotional state of the prospect'
                 }
               },
               required: ['sentiment', 'engagement_level', 'key_topics']
@@ -211,6 +231,16 @@ class AIService {
                     }
                   },
                   description: 'Common objections and responses'
+                },
+                target_audience: {
+                  type: 'array',
+                  items: { type: 'string' },
+                  description: 'Target audience segments'
+                },
+                success_stories: {
+                  type: 'array',
+                  items: { type: 'string' },
+                  description: 'Customer success stories or case studies'
                 }
               },
               required: ['key_features', 'benefits']
@@ -232,6 +262,115 @@ class AIService {
     }
   }
 
+  // Generate meeting summary
+  async generateMeetingSummary(transcriptHistory, meetingData) {
+    try {
+      const conversationText = transcriptHistory
+        .map(entry => `${entry.speaker}: ${entry.text}`)
+        .join('\n');
+
+      const completion = await this.openai.chat.completions.create({
+        model: config.OPENAI_MODEL,
+        messages: [
+          {
+            role: 'system',
+            content: 'Generate a comprehensive summary of this sales call including key points, outcomes, and action items.'
+          },
+          {
+            role: 'user',
+            content: `Meeting: ${meetingData.title}\nDuration: ${meetingData.duration} minutes\n\nTranscript:\n${conversationText}`
+          }
+        ],
+        functions: [
+          {
+            name: 'generate_meeting_summary',
+            description: 'Generate a comprehensive meeting summary',
+            parameters: {
+              type: 'object',
+              properties: {
+                executive_summary: {
+                  type: 'string',
+                  description: 'Brief executive summary of the meeting'
+                },
+                key_points: {
+                  type: 'array',
+                  items: { type: 'string' },
+                  description: 'Key points discussed'
+                },
+                decisions_made: {
+                  type: 'array',
+                  items: { type: 'string' },
+                  description: 'Decisions made during the meeting'
+                },
+                action_items: {
+                  type: 'array',
+                  items: {
+                    type: 'object',
+                    properties: {
+                      task: { type: 'string' },
+                      assignee: { type: 'string' },
+                      due_date: { type: 'string' }
+                    }
+                  },
+                  description: 'Action items with assignees and due dates'
+                },
+                next_steps: {
+                  type: 'array',
+                  items: { type: 'string' },
+                  description: 'Recommended next steps'
+                },
+                sentiment_analysis: {
+                  type: 'object',
+                  properties: {
+                    overall_sentiment: { type: 'string' },
+                    client_interest_level: { type: 'string' },
+                    likelihood_to_close: { type: 'string' }
+                  }
+                },
+                topics_covered: {
+                  type: 'array',
+                  items: { type: 'string' },
+                  description: 'Main topics covered in the meeting'
+                }
+              },
+              required: ['executive_summary', 'key_points', 'action_items']
+            }
+          }
+        ],
+        function_call: { name: 'generate_meeting_summary' }
+      });
+
+      const functionCall = completion.choices[0].message.function_call;
+      if (functionCall && functionCall.name === 'generate_meeting_summary') {
+        return JSON.parse(functionCall.arguments);
+      }
+
+      throw new Error('Failed to generate meeting summary');
+    } catch (error) {
+      console.error('Failed to generate meeting summary:', error);
+      throw error;
+    }
+  }
+
+  // Detect conversation phase
+  detectConversationPhase(transcriptHistory) {
+    const recentText = transcriptHistory.slice(-5).map(t => t.text).join(' ').toLowerCase();
+    
+    if (recentText.includes('hello') || recentText.includes('introduction') || recentText.includes('nice to meet')) {
+      return 'opening';
+    } else if (recentText.includes('tell me about') || recentText.includes('what do you') || recentText.includes('how does')) {
+      return 'discovery';
+    } else if (recentText.includes('feature') || recentText.includes('benefit') || recentText.includes('solution')) {
+      return 'presentation';
+    } else if (recentText.includes('but') || recentText.includes('concern') || recentText.includes('however')) {
+      return 'objection';
+    } else if (recentText.includes('price') || recentText.includes('contract') || recentText.includes('sign')) {
+      return 'closing';
+    } else {
+      return 'discovery';
+    }
+  }
+
   // Build conversation context for AI
   buildConversationContext(transcriptHistory, documentContext) {
     const recentTranscript = transcriptHistory.slice(-10); // Last 10 entries
@@ -246,7 +385,7 @@ ${conversationText}
 Available Context:
 ${documentContext}
 
-Please provide a helpful sales suggestion based on the current conversation flow.
+Please provide a helpful sales suggestion based on the current conversation flow and context.
     `.trim();
   }
 
@@ -259,7 +398,10 @@ Guidelines:
 - Consider the conversation flow and timing
 - Be concise but helpful
 - Focus on moving the sale forward
-- Handle objections with empathy and facts`;
+- Handle objections with empathy and facts
+- Suggest relevant questions to uncover needs
+- Recommend appropriate closing techniques
+- Provide pricing guidance when relevant`;
 
     const customizations = [];
     
@@ -296,6 +438,36 @@ Guidelines:
   // Clear conversation context
   clearConversationContext(callId) {
     this.conversationContexts.delete(callId);
+  }
+
+  // Generate follow-up email
+  async generateFollowUpEmail(transcriptHistory, meetingData) {
+    try {
+      const conversationText = transcriptHistory
+        .map(entry => `${entry.speaker}: ${entry.text}`)
+        .join('\n');
+
+      const completion = await this.openai.chat.completions.create({
+        model: config.OPENAI_MODEL,
+        messages: [
+          {
+            role: 'system',
+            content: 'Generate a professional follow-up email based on the sales call conversation.'
+          },
+          {
+            role: 'user',
+            content: `Meeting: ${meetingData.title}\n\nConversation:\n${conversationText}`
+          }
+        ],
+        max_tokens: 500,
+        temperature: 0.7
+      });
+
+      return completion.choices[0].message.content;
+    } catch (error) {
+      console.error('Failed to generate follow-up email:', error);
+      throw error;
+    }
   }
 }
 

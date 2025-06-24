@@ -25,16 +25,17 @@ import { authenticate } from './middleware/auth.js';
 // Import routes
 import authRoutes from './routes/auth.js';
 import callRoutes from './routes/calls.js';
+import meetingRoutes from './routes/meetings.js';
 // import documentRoutes from './routes/documents.js';
 // import transcriptRoutes from './routes/transcripts.js';
 // import aiRoutes from './routes/ai.js';
 // import analyticsRoutes from './routes/analytics.js';
-// import meetingRoutes from './routes/meetings.js';
 
 // Import services
 import aiService from './services/aiService.js';
 import transcriptionService from './services/transcriptionService.js';
 import zoomService from './services/zoomService.js';
+import googleMeetService from './services/googleMeetService.js';
 
 const app = express();
 const server = http.createServer(app);
@@ -120,11 +121,11 @@ const upload = multer({
 // API Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/calls', callRoutes);
+app.use('/api/meetings', meetingRoutes);
 // app.use('/api/documents', documentRoutes);
 // app.use('/api/transcripts', transcriptRoutes);
 // app.use('/api/ai', aiRoutes);
 // app.use('/api/analytics', analyticsRoutes);
-// app.use('/api/meetings', meetingRoutes);
 
 // Health check endpoint
 app.get('/api/health', async (req, res) => {
@@ -158,7 +159,7 @@ io.on('connection', (socket) => {
 
   socket.on('joinCall', async (data) => {
     try {
-      const { callId, userId } = data;
+      const { callId, userId, platform } = data;
       
       if (!callId || !userId) {
         socket.emit('error', { message: 'Call ID and User ID are required' });
@@ -166,7 +167,14 @@ io.on('connection', (socket) => {
       }
 
       socket.join(callId);
-      console.log(`📞 User ${socket.id} joined call ${callId}`);
+      console.log(`📞 User ${socket.id} joined call ${callId} on ${platform || 'unknown'} platform`);
+
+      // Start platform-specific monitoring
+      if (platform === 'zoom') {
+        await zoomService.startAIMonitoring(data.meetingId, callId, io);
+      } else if (platform === 'google_meet') {
+        await googleMeetService.startAIMonitoring(data.meetingId, callId, io);
+      }
 
       // Start real-time transcription
       await transcriptionService.startRealTimeTranscription(
@@ -180,7 +188,10 @@ io.on('connection', (socket) => {
               speaker: transcript.speaker,
               text: transcript.text,
               confidence: transcript.confidence,
-              timestamp: transcript.timestamp
+              timestamp: transcript.timestamp,
+              startTime: transcript.startTime,
+              endTime: transcript.endTime,
+              words: transcript.words
             });
 
             // Emit to call participants
@@ -200,6 +211,9 @@ io.on('connection', (socket) => {
           io.to(callId).emit('transcriptionError', { error: error.message });
         }
       );
+
+      // Emit successful join
+      socket.emit('callJoined', { callId, platform });
     } catch (error) {
       console.error('Error joining call:', error);
       socket.emit('error', { message: 'Failed to join call' });
@@ -216,6 +230,7 @@ io.on('connection', (socket) => {
       aiService.clearConversationContext(callId);
       
       console.log(`📞 User ${socket.id} left call ${callId}`);
+      socket.emit('callLeft', { callId });
     } catch (error) {
       console.error('Error leaving call:', error);
     }
@@ -223,13 +238,14 @@ io.on('connection', (socket) => {
 
   socket.on('useSuggestion', async (data) => {
     try {
-      const { suggestionId, callId } = data;
+      const { suggestionId, callId, feedback } = data;
       
       // Mark suggestion as used in database
       const AISuggestion = (await import('./models/AISuggestion.js')).default;
       await AISuggestion.findByIdAndUpdate(suggestionId, {
         used: true,
-        usedAt: new Date()
+        usedAt: new Date(),
+        feedback: feedback || null
       });
 
       io.to(callId).emit('suggestionUsed', { suggestionId });
@@ -247,6 +263,20 @@ io.on('connection', (socket) => {
     }
   });
 
+  socket.on('meetingEvent', async (data) => {
+    try {
+      const { callId, event, platform, payload } = data;
+      
+      // Handle platform-specific meeting events
+      console.log(`📹 Meeting event: ${event} on ${platform} for call ${callId}`);
+      
+      // Broadcast to all participants in the call
+      io.to(callId).emit('meetingEvent', { event, platform, payload });
+    } catch (error) {
+      console.error('Error handling meeting event:', error);
+    }
+  });
+
   socket.on('disconnect', () => {
     console.log(`👤 User disconnected: ${socket.id}`);
   });
@@ -259,17 +289,21 @@ async function generateAISuggestionIfNeeded(callId, userId, forceGenerate = fals
     const Transcript = (await import('./models/Transcript.js')).default;
     const Document = (await import('./models/Document.js')).default;
     const AISuggestion = (await import('./models/AISuggestion.js')).default;
+    const User = (await import('./models/User.js')).default;
 
     // Get recent transcripts
     const transcripts = await Transcript.find({ call: callId })
       .sort({ timestamp: -1 })
       .limit(10);
 
-    // Get user documents
-    const documents = await Document.find({
-      user: userId,
-      processed: true
-    });
+    // Get user documents and preferences
+    const [documents, user] = await Promise.all([
+      Document.find({
+        user: userId,
+        processed: true
+      }),
+      User.findById(userId)
+    ]);
 
     // Check if we should generate a suggestion
     const lastSuggestion = await AISuggestion.findOne({ call: callId })
@@ -296,7 +330,8 @@ async function generateAISuggestionIfNeeded(callId, userId, forceGenerate = fals
     const suggestion = await aiService.generateSuggestion(
       callId,
       transcripts.slice(0, 10),
-      documentContext
+      documentContext,
+      user?.preferences || {}
     );
 
     // Store suggestion in database
@@ -307,7 +342,9 @@ async function generateAISuggestionIfNeeded(callId, userId, forceGenerate = fals
       text: suggestion.text,
       confidence: suggestion.confidence,
       context: suggestion.context,
-      reasoning: suggestion.reasoning
+      reasoning: suggestion.reasoning,
+      priority: suggestion.priority,
+      triggerContext: suggestion.triggerContext
     });
 
     // Emit to call participants
